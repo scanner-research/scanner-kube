@@ -1,0 +1,12 @@
+version: '2'
+
+services:
+  test:
+    build:
+      context: .
+      args:
+        project: visualdb-1046
+        zone: us-east1-d
+    volumes:
+      - .:/app
+      - ~/.bash_history:/root/.bash_history

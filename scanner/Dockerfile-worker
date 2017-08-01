@@ -1,0 +1,4 @@
+FROM scannerresearch/scanner:cpu
+
+ADD worker.py .
+CMD ["python", "worker.py"]

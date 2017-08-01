@@ -1,0 +1,3 @@
+FROM scannerresearch/scanner:master
+
+ADD .scanner.toml /root/.scanner.toml
