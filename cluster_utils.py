@@ -56,24 +56,32 @@ def make_container(name):
 
 
 def make_deployment(name):
-    return {
+    template = {
         'apiVersion': 'apps/v1beta1',
         'kind': 'Deployment',
         'metadata': {'name': 'scanner-{}'.format(name)},
-        'spec': { 'template': {
-            'metadata': { 'labels': { 'app': 'scanner' }},
-            'spec': {
-                'containers': [make_container(name)],
-                'volumes': [{
-                    'name': 'google-key',
-                    'secret': {
-                        'secretName': 'google-key',
-                        'items': [{'key': 'google-key.json', 'path': 'google-key.json'}]
-                    }
-                }]
+        'spec': {
+            'template': {
+                'metadata': { 'labels': { 'app': 'scanner' }},
+                'spec': {
+                    'containers': [make_container(name)],
+                    'volumes': [{
+                        'name': 'google-key',
+                        'secret': {
+                            'secretName': 'google-key',
+                            'items': [{
+                                'key': 'google-key.json',
+                                'path': 'google-key.json'
+                            }]
+                        }
+                    }]
+                }
             }
-        }}
+        }
     }  # yapf: disable
+    if name == 'worker':
+        template['spec']['replicas'] = 4
+    return template
 
 
 def create_object(template):

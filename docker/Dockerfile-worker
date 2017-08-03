@@ -1,3 +1,5 @@
 FROM scannerresearch/scanner:worker
 
 ADD .scanner.toml /root/.scanner.toml
+ADD docker/requirements-cluster.txt .
+RUN pip install -r requirements-cluster.txt
