@@ -1,12 +1,20 @@
 version: '2'
 
 services:
-  test:
+  scanner-client:
     build:
       context: .
+      dockerfile: Dockerfile-local
       args:
         project: visualdb-1046
         zone: us-east1-d
+    command: ["python", "cluster.py", "serve"]
+    environment:
+      - AWS_ACCESS_KEY_ID=GOOGTDANWQI3SV6GZSC5
+      - AWS_SECRET_ACCESS_KEY=3W5/sMI8JkP9IXDlrWO7dYLPIRmFXb5JeKT+36vE
     volumes:
       - .:/app
       - ~/.bash_history:/root/.bash_history
+      - .scanner.toml:/root/.scanner.toml
+    ports:
+      - "8001:8001"

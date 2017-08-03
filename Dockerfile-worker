@@ -1,3 +1,0 @@
-FROM scannerresearch/scanner:worker
-
-ADD .scanner.toml /root/.scanner.toml
