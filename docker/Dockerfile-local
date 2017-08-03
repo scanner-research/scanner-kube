@@ -12,13 +12,7 @@ RUN export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && \
 # TODO(wcrichto): is there a way to mount .:/app during build to avoid the ADDs here?
 WORKDIR /app
 
-# Install python dependencies
-ADD requirements.txt .
-RUN pip install -r requirements.txt
-
-# Authenticate with gcloud and configure project settings
-ADD google-key.json .
-RUN gcloud auth activate-service-account --key-file=google-key.json && \
-    gcloud config set project ${project} && \
-    gcloud config set compute/zone ${zone}
+ADD docker/requirements-local.txt google-key.json cluster.py cluster_utils.py .scanner.toml ./
+RUN pip install -r requirements-local.txt
+RUN python cluster.py auth
 ENV GOOGLE_APPLICATION_CREDENTIALS=/app/google-key.json

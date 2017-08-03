@@ -1,16 +1,19 @@
 import argparse
 import subprocess as sp
-from constants import *
 import sys
 import signal
-
+import toml
 
 def build():
+    config = toml.loads(open('.scanner.toml').read())
+    repo = config['cluster']['container_repo']
+    print repo
+
     def _build(ty):
         sp.check_call(
             """
-docker build -t {repo}:{ty} -f Dockerfile-{ty} . && \
-    docker push {repo}:{ty}""".format(repo=CONTAINER_REPO, ty=ty),
+docker build -t {repo}:{ty} -f docker/Dockerfile-{ty} . && \
+    docker push {repo}:{ty}""".format(repo=repo, ty=ty),
             shell=True)
 
     _build('master')
@@ -33,6 +36,7 @@ if __name__ == "__main__":
     command.add_parser('get-credentials')
     command.add_parser('build')
     command.add_parser('serve')
+    command.add_parser('auth')
     args = parser.parse_args()
 
     if args.command == 'build':
@@ -49,3 +53,5 @@ if __name__ == "__main__":
             cu.get_credentials()
         elif args.command == 'serve':
             cu.serve()
+        elif args.command == 'auth':
+            cu.auth()

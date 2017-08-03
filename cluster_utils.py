@@ -1,6 +1,5 @@
 from apiclient.discovery import build
 from googleapiclient.errors import HttpError
-from constants import *
 import time
 import subprocess as sp
 import tempfile
@@ -10,9 +9,20 @@ import sys
 import json
 from pprint import pprint
 import threading
+import toml
 
-service = build('container', 'v1')
-clusters = service.projects().zones().clusters()
+config = toml.loads(open('.scanner.toml').read())
+PROJECT_ID = config['cluster']['project']
+ZONE = config['cluster']['zone']
+CLUSTER_ID = config['cluster']['cluster']
+CONTAINER_REPO = config['cluster']['container_repo']
+ARGS = {'projectId': PROJECT_ID, 'zone': ZONE, 'clusterId': CLUSTER_ID}
+
+
+def build_service():
+    service = build('container', 'v1')
+    return service.projects().zones().clusters()
+
 
 def make_container(name):
     template = {
@@ -75,6 +85,7 @@ def create_object(template):
 
 
 def get_cluster_info():
+    clusters = build_service()
     req = clusters.get(**ARGS)
     try:
         return req.execute()
@@ -88,6 +99,7 @@ def get_credentials():
 
 
 def delete():
+    clusters = build_service()
     req = clusters.delete(**ARGS)
     req.execute()
     print 'Sent delete request. Waiting for deletion...'
@@ -112,6 +124,7 @@ def get_object(info, name):
 def create():
     if get_cluster_info() is None:
         print 'Creating cluster...'
+        clusters = build_service()
         req = clusters.create(
             body={
                 "cluster": {
@@ -210,7 +223,10 @@ def create():
 PID_FILE = '/tmp/forwarding_process.pid'
 def port_forward():
     if os.path.isfile(PID_FILE):
-        sp.check_call(['kill', '-9', open(PID_FILE).read()])
+        try:
+            sp.check_call(['kill', '-9', open(PID_FILE).read()])
+        except sp.CalledProcessError:
+            pass
 
     for pod in get_kube_info('pods')['items']:
         if pod['status']['containerStatuses'][0]['name'] == 'master':
@@ -236,3 +252,9 @@ def serve():
     t.daemon = True
     t.start()
     sp.check_call(['kubectl', 'proxy', '--address=0.0.0.0'])
+
+
+def auth():
+    sp.check_call(['gcloud', 'auth', 'activate-service-account', '--key-file=google-key.json'])
+    sp.check_call(['gcloud', 'config', 'set', 'project', PROJECT_ID])
+    sp.check_call(['gcloud', 'config', 'set', 'compute/zone', ZONE])
