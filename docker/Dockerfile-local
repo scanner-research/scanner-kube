@@ -9,9 +9,8 @@ RUN export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)" && \
     curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
     apt-get update && apt-get install -y google-cloud-sdk kubectl
 
-# TODO(wcrichto): is there a way to mount .:/app during build to avoid the ADDs here?
 WORKDIR /app
-
+# TODO(wcrichto): is there a way to mount .:/app during build to avoid the ADDs here?
 ADD docker/requirements-local.txt google-key.json cluster.py cluster_utils.py .scanner.toml ./
 RUN pip install -r requirements-local.txt
 RUN python cluster.py auth

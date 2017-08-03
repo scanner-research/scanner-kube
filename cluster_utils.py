@@ -209,7 +209,7 @@ def create():
                 break
         port_forward()
 
-    # TODO(wcrichto): is it possible to use NodePort instead of LoadBalancer?
+    # TODO(wcrichto): using expose is different than creating service?
     services = get_kube_info('services')
     if get_object(services, 'scanner-master') is None:
         sp.check_call(['kubectl', 'expose', 'deploy/scanner-master'])
