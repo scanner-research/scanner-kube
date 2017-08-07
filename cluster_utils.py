@@ -45,13 +45,31 @@ def make_container(name):
              'valueFrom': {'secretKeyRef': {
                  'name': 'aws-storage-key',
                  'key': 'AWS_SECRET_ACCESS_KEY'
-             }}}
+             }}},
+            {'name': 'GLOG_minloglevel',
+             'value': '0'},
+            {'name': 'GLOG_logtostderr',
+             'value': '1'},
+            {'name': 'GLOG_v',
+             'value': '1'}
         ]
     }  # yapf: disable
     if name == 'master':
         template['ports'] = [{
             'containerPort': 8080,
         }]
+    elif name == 'worker':
+        rs = get_by_owner('rs', 'scanner-master')
+        pod_name = get_by_owner('pod', rs)
+        pod = get_object(get_kube_info('pod'), pod_name)
+        template['env'] += [{
+            'name': 'SCANNER_MASTER_SERVICE_HOST',
+            'value': pod['status']['podIP']
+        }, {
+            'name': 'SCANNER_MASTER_SERVICE_PORT',
+            'value': '8080'
+        }]
+
     return template
 
 
@@ -81,6 +99,7 @@ def make_deployment(name):
     }  # yapf: disable
     if name == 'worker':
         template['spec']['replicas'] = 4
+
     return template
 
 
@@ -143,7 +162,7 @@ def create():
                     "monitoringService": "none",
                     "nodePools": [{
                         "name": "default-pool",
-                        "initialNodeCount": 1,
+                        "initialNodeCount": 2,
                         "config": {
                             "machineType": "n1-standard-4",
                             "imageType": "COS",
@@ -162,7 +181,7 @@ def create():
                         "autoscaling": {
                             "enabled": True,
                             "minNodeCount": 1,
-                            "maxNodeCount": 1
+                            "maxNodeCount": 2
                         },
                     }],
                     "initialClusterVersion": "1.7.2",
@@ -217,15 +236,16 @@ def create():
                 break
         port_forward()
 
-    # TODO(wcrichto): using expose is different than creating service?
-    services = get_kube_info('services')
-    if get_object(services, 'scanner-master') is None:
-        sp.check_call(['kubectl', 'expose', 'deploy/scanner-master'])
-
     if get_object(deployments, 'scanner-worker') is None:
         create_object(make_deployment('worker'))
 
     print 'Done!'
+
+
+def get_by_owner(ty, owner):
+    return sp.check_output(
+        'kubectl get {} -o json | jq \'.items[] | select(.metadata.ownerReferences[0].name == "{}") | .metadata.name\''.format(ty, owner),
+        shell=True).strip()[1:-1]
 
 
 PID_FILE = '/tmp/forwarding_process.pid'
@@ -236,14 +256,13 @@ def port_forward():
         except sp.CalledProcessError:
             pass
 
-    for pod in get_kube_info('pods')['items']:
-        if pod['status']['containerStatuses'][0]['name'] == 'master':
-            pod_name = pod['metadata']['name']
-            print 'Forwarding ' + pod_name
-            forward_process = sp.Popen(['kubectl', 'port-forward', pod_name, '8080:8080'])
-            with open(PID_FILE, 'w') as f:
-                f.write(str(forward_process.pid))
-            return forward_process
+    rs = get_by_owner('rs', 'scanner-master')
+    pod_name = get_by_owner('pod', rs)
+    print 'Forwarding ' + pod_name
+    forward_process = sp.Popen(['kubectl', 'port-forward', pod_name, '8080:8080'])
+    with open(PID_FILE, 'w') as f:
+        f.write(str(forward_process.pid))
+    return forward_process
 
 
 # We have to make sure to .wait() on the port forwarding process in serve, since
