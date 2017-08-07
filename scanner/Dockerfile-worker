@@ -1,4 +1,5 @@
 FROM scannerresearch/scanner:cpu
 
+WORKDIR /app
 ADD worker.py .
 CMD ["python", "worker.py"]
