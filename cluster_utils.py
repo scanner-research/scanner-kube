@@ -10,6 +10,10 @@ import json
 from pprint import pprint
 import threading
 import toml
+import atexit
+import multiprocessing as mp
+import shlex
+import signal
 
 config = toml.loads(open('.scanner.toml').read())
 PROJECT_ID = config['cluster']['project']
@@ -17,7 +21,6 @@ ZONE = config['cluster']['zone']
 CLUSTER_ID = config['cluster']['cluster']
 CONTAINER_REPO = config['cluster']['container_repo']
 ARGS = {'projectId': PROJECT_ID, 'zone': ZONE, 'clusterId': CLUSTER_ID}
-
 
 def build_service():
     service = build('container', 'v1')
@@ -98,7 +101,7 @@ def make_deployment(name):
         }
     }  # yapf: disable
     if name == 'worker':
-        template['spec']['replicas'] = 4
+        template['spec']['replicas'] = 1
 
     return template
 
@@ -157,9 +160,6 @@ def create():
                 "cluster": {
                     "name": CLUSTER_ID,
                     "zone": ZONE,
-                    "network": "default",
-                    "loggingService": "logging.googleapis.com",
-                    "monitoringService": "none",
                     "nodePools": [{
                         "name": "default-pool",
                         "initialNodeCount": 2,
@@ -167,7 +167,6 @@ def create():
                             "machineType": "n1-standard-4",
                             "imageType": "COS",
                             "diskSizeGb": 100,
-                            "preemptible": False,
                             "oauthScopes": [
                                 "https://www.googleapis.com/auth/compute",
                                 "https://www.googleapis.com/auth/devstorage.read_only",
@@ -184,14 +183,8 @@ def create():
                             "maxNodeCount": 2
                         },
                     }],
-                    "initialClusterVersion": "1.7.2",
+                    "initialClusterVersion": "1.7.3",
                     "enableKubernetesAlpha": True,
-                    "masterAuth": {
-                        "username": "admin",
-                        "clientCertificateConfig": {
-                            "issueClientCertificate": True
-                        }
-                    },
                 }
              },
             projectId=PROJECT_ID,
@@ -234,7 +227,7 @@ def create():
             deploy = get_object(get_kube_info('deployments'), 'scanner-master')
             if 'unavailableReplicas' not in deploy['status']:
                 break
-        port_forward()
+        serve()
 
     if get_object(deployments, 'scanner-worker') is None:
         create_object(make_deployment('worker'))
@@ -248,37 +241,47 @@ def get_by_owner(ty, owner):
         shell=True).strip()[1:-1]
 
 
-PID_FILE = '/tmp/forwarding_process.pid'
-def port_forward():
+PID_FILE = '/tmp/serving_process.pid'
+
+def serve():
     if os.path.isfile(PID_FILE):
         try:
-            sp.check_call(['kill', '-9', open(PID_FILE).read()])
+            sp.check_call(['kill',  open(PID_FILE).read()])
         except sp.CalledProcessError:
             pass
+
+    p = sp.Popen(shlex.split('python -c "import cluster_utils as cu; cu.serve_process()"'))
+
+    with open(PID_FILE, 'w') as f:
+        f.write(str(p.pid))
+
+
+
+def serve_process():
+    if get_cluster_info() is None:
+        return
+
+    get_credentials()
 
     rs = get_by_owner('rs', 'scanner-master')
     pod_name = get_by_owner('pod', rs)
     print 'Forwarding ' + pod_name
     forward_process = sp.Popen(['kubectl', 'port-forward', pod_name, '8080:8080'])
-    with open(PID_FILE, 'w') as f:
-        f.write(str(forward_process.pid))
-    return forward_process
+    proxy_process = sp.Popen(['kubectl', 'proxy', '--address=0.0.0.0'])
+
+    def cleanup_processes(signum, frame):
+        proxy_process.terminate()
+        forward_process.terminate()
+        proxy_process.wait()
+        forward_process.wait()
+        exit()
+
+    signal.signal(signal.SIGINT, cleanup_processes)
+    signal.signal(signal.SIGTERM, cleanup_processes)
+    signal.pause()
 
 
-# We have to make sure to .wait() on the port forwarding process in serve, since
-# otherwise when it gets killed on a later invocation to port_forward, the process
-# becomes a zombie and the port remains blocked.
-def watch_process(p):
-    p.wait()
 
-
-def serve():
-    get_credentials()
-    p = port_forward()
-    t = threading.Thread(target=watch_process, args=(p,))
-    t.daemon = True
-    t.start()
-    sp.check_call(['kubectl', 'proxy', '--address=0.0.0.0'])
 
 
 def auth():

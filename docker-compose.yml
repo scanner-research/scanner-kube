@@ -5,10 +5,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile-local
-      args:
-        project: visualdb-1046
-        zone: us-east1-d
-    command: ["python", "cluster.py", "serve"]
+    command: ["sleep", "infinity"]
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
