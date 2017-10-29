@@ -31,12 +31,16 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     command = parser.add_subparsers(dest='command')
-    command.add_parser('create')
+    create = command.add_parser('create')
+    create.add_argument('--reset', '-r', action='store_true', help='Delete current deployments')
     command.add_parser('delete')
     command.add_parser('get-credentials')
     command.add_parser('build')
     command.add_parser('serve')
     command.add_parser('auth')
+    resize = command.add_parser('resize')
+    resize.add_argument('size', type=int, help='Number of nodes')
+
     args = parser.parse_args()
 
     if args.command == 'build':
@@ -45,13 +49,4 @@ if __name__ == "__main__":
         # cluster_utils are separated into a standalone file so that cluster.py
         # can be called from outside the Docker container when used for build.
         import cluster_utils as cu
-        if args.command == 'create':
-            cu.create()
-        elif args.command == 'delete':
-            cu.delete()
-        elif args.command == 'get-credentials':
-            cu.get_credentials()
-        elif args.command == 'serve':
-            cu.serve()
-        elif args.command == 'auth':
-            cu.auth()
+        getattr(cu, args.command.replace('-','_'))(args)
