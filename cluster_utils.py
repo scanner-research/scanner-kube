@@ -62,7 +62,7 @@ def make_container(name):
         while True:
             rs = get_by_owner('rs', 'scanner-master')
             pod_name = get_by_owner('pod', rs)
-            if "\n" not in pod_name:
+            if "\n" not in pod_name and pod_name != "":
                 break
             time.sleep(1)
 
@@ -282,7 +282,7 @@ def serve_process():
     while True:
         rs = get_by_owner('rs', 'scanner-master')
         pod_name = get_by_owner('pod', rs)
-        if "\n" not in pod_name:
+        if "\n" not in pod_name and pod_name != '':
             print 'Forwarding ' + pod_name
             forward_process = sp.Popen(
                 ['kubectl', 'port-forward', pod_name, '8080:8080'])
