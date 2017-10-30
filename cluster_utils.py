@@ -18,7 +18,6 @@ PROJECT_ID = config['cluster']['project']
 ZONE = config['cluster']['zone']
 CLUSTER_ID = config['cluster']['cluster']
 CONTAINER_REPO = config['cluster']['container_repo']
-ARGS = {'projectId': PROJECT_ID, 'zone': ZONE, 'clusterId': CLUSTER_ID}
 
 
 def run(s):
@@ -60,14 +59,18 @@ def make_container(name):
             'containerPort': 8080,
         }]
     elif name == 'worker':
-        rs = get_by_owner('rs', 'scanner-master')
-        pod_name = get_by_owner('pod', rs)
+        while True:
+            rs = get_by_owner('rs', 'scanner-master')
+            pod_name = get_by_owner('pod', rs)
+            if "\n" not in pod_name:
+                break
+            time.sleep(1)
+
         while True:
             pod = get_object(get_kube_info('pod'), pod_name)
-            if pod is None:
-                time.sleep(1)
-            else:
+            if pod is not None:
                 break
+            time.sleep(1)
 
         template['env'] += [{
             'name': 'SCANNER_MASTER_SERVICE_HOST',
@@ -76,6 +79,13 @@ def make_container(name):
             'name': 'SCANNER_MASTER_SERVICE_PORT',
             'value': '8080'
         }]
+
+        template['resources'] = {
+            'requests': {
+                'cpu': 3,
+            }
+        }
+
 
     return template
 
@@ -103,20 +113,12 @@ def make_deployment(name):
                     }],
                     'nodeSelector': {
                         'cloud.google.com/gke-nodepool':
-                        'master' if name == 'master' else 'workers'
+                        'default-pool' if name == 'master' else 'workers'
                     }
                 }
             }
         }
     }  # yapf: disable
-
-    if name == 'worker':
-        template['spec']['template']['spec']['resources'] = {
-            'requests': {
-                'cpu': 4,
-                'memory': '16Gi'
-            }
-        }
 
     return template
 
@@ -130,7 +132,10 @@ def create_object(template):
 
 
 def cluster_running():
-    return sp.check_output('gcloud container clusters list --format=json | jq -e \'.[] | select(.name == "{}")\''.format(CLUSTER_ID), shell=True) != ''
+    return sp.check_output(
+        'gcloud container clusters list --format=json | jq \'.[] | select(.name == "{}")\''.
+        format(CLUSTER_ID),
+        shell=True) != ''
 
 
 def get_credentials(args):
@@ -142,7 +147,8 @@ def delete(args):
 
 
 def get_kube_info(kind):
-    return json.loads(sp.check_output(shlex.split('kubectl get {} -o json'.format(kind))))
+    return json.loads(
+        sp.check_output(shlex.split('kubectl get {} -o json'.format(kind))))
 
 
 def get_object(info, name):
@@ -155,55 +161,55 @@ def get_object(info, name):
 def create(args):
     if not cluster_running():
         print 'Creating cluster...'
-        clusters = build_service()
         scopes = [
             "https://www.googleapis.com/auth/compute",
-            "https://www.googleapis.com/auth/devstorage.read_only",
+            "https://www.googleapis.com/auth/devstorage.read_write",
             "https://www.googleapis.com/auth/logging.write",
-            "https://www.googleapis.com/auth/monitoring.write",
+            "https://www.googleapis.com/auth/monitoring",
+            "https://www.googleapis.com/auth/pubsub",
             "https://www.googleapis.com/auth/servicecontrol",
             "https://www.googleapis.com/auth/service.management.readonly",
             "https://www.googleapis.com/auth/trace.append"
         ]
-        req = clusters.create(
-            body={
-                "cluster": {
-                    "name": CLUSTER_ID,
-                    "zone": ZONE,
-                    "nodePools": [{
-                        "name": "master",
-                        "initialNodeCount": 1,
-                        "config": {
-                            "machineType": "n1-standard-4",
-                            "imageType": "COS",
-                            "diskSizeGb": 100,
-                            "oauthScopes": scopes
-                        },
-                    }, {
-                        "name": "workers",
-                        "initialNodeCount": 1,
-                        "config": {
-                            "machineType": "n1-standard-4",
-                            "imageType": "COS",
-                            "diskSizeGb": 100,
-                            "oauthScopes": scopes,
-                        },
 
-                    }],
-                    "initialClusterVersion": "1.8.1-gke.0",
-                }
-             },
-            projectId=PROJECT_ID,
-            zone=ZONE)  # yapf: disable
-        req.execute()
+        fmt_args = {
+            'project': PROJECT_ID,
+            'cluster_id': CLUSTER_ID,
+            'zone': ZONE,
+            'cluster_version': '1.8.1-gke.0',
+            'machine_type': 'n1-standard-4',
+            'scopes': ','.join(scopes),
+        }
 
-        print 'Request submitted. Waiting for cluster startup...'
-        while True:
-            info = get_cluster_info()
-            assert info is not None
-            if info['status'] == 'RUNNING':
-                break
-            time.sleep(5)
+        cluster_cmd = """
+gcloud -q beta container --project "{project}" clusters create "{cluster_id}" \
+        --zone "{zone}" \
+        --cluster-version "{cluster_version}" \
+        --machine-type "{machine_type}" \
+        --image-type "COS" \
+        --disk-size "100" \
+        --scopes {scopes} \
+        --num-nodes "1" \
+        --enable-cloud-logging \
+        --enable-legacy-authorization \
+        """.format(**fmt_args)
+
+        run(cluster_cmd)
+
+        pool_cmd = """
+gcloud -q beta container node-pools create workers \
+        --cluster "{cluster_id}"
+        --machine-type "{machine_type}" \
+        --image-type "COS" \
+        --disk-size "100" \
+        --scopes {scopes} \
+        --num-nodes "1" \
+        --enable-autoscaling \
+        --min-nodes "0" \
+        --max-nodes "100" \
+        """.format(**fmt_args)
+
+        run(pool_cmd)
 
     print 'Cluster created. Setting up kubernetes...'
     get_credentials(args)
@@ -211,15 +217,17 @@ def create(args):
     if args.reset:
         run('kubectl delete deploy --all')
 
+
     secrets = get_kube_info('secrets')
     print 'Making secrets...'
     if get_object(secrets, 'google-key') is None:
-        run('kubectl create secret generic google-key --from-file=google-key.json')
+        run('kubectl create secret generic google-key --from-file=google-key.json'
+            )
 
     if get_object(secrets, 'aws-storage-key') is None:
         run('kubectl create secret generic aws-storage-key' +
             ' --from-literal=AWS_ACCESS_KEY_ID=' +
-            os.environ['AWS_ACCESS_KEY_ID'],
+            os.environ['AWS_ACCESS_KEY_ID'] +
             ' --from-literal=AWS_SECRET_ACCESS_KEY=' +
             os.environ['AWS_SECRET_ACCESS_KEY'])
 
@@ -232,7 +240,7 @@ def create(args):
             deploy = get_object(get_kube_info('deployments'), 'scanner-master')
             if 'unavailableReplicas' not in deploy['status']:
                 break
-        serve()
+        serve(args)
 
     if get_object(deployments, 'scanner-worker') is None:
         create_object(make_deployment('worker'))
@@ -265,18 +273,21 @@ def serve(args):
         f.write(str(p.pid))
 
 
-def serve_process(args):
-    if get_cluster_info() is None:
+def serve_process():
+    if not cluster_running():
         return
 
-    get_credentials(args)
+    get_credentials(None)
 
-    rs = get_by_owner('rs', 'scanner-master')
-    pod_name = get_by_owner('pod', rs)
-    print 'Forwarding ' + pod_name
-    forward_process = sp.Popen(
-        ['kubectl', 'port-forward', pod_name, '8080:8080'])
-    proxy_process = sp.Popen(['kubectl', 'proxy', '--address=0.0.0.0'])
+    while True:
+        rs = get_by_owner('rs', 'scanner-master')
+        pod_name = get_by_owner('pod', rs)
+        if "\n" not in pod_name:
+            print 'Forwarding ' + pod_name
+            forward_process = sp.Popen(
+                ['kubectl', 'port-forward', pod_name, '8080:8080'])
+            proxy_process = sp.Popen(['kubectl', 'proxy', '--address=0.0.0.0'])
+            break
 
     def cleanup_processes(signum, frame):
         proxy_process.terminate()
@@ -298,6 +309,4 @@ def auth(args):
 
 
 def resize(args):
-    run('gcloud -q container clusters resize {} --node-pool=workers --size={}'.format(
-        CLUSTER_ID, args.size))
     run('kubectl scale deploy/scanner-worker --replicas={}'.format(args.size))
