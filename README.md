@@ -3,6 +3,7 @@
 Files needed:
 - `.scanner.toml` with your configuration
 - `google-key.json` service account key ([Credentials](https://console.cloud.google.com/apis/credentials) > Create credentials > Service account key > JSON)
+Disposition-Notification-To: Will Crichton <wcrichto@halfmoon.i-did-not-set--mail-host-address--so-tickle-me>
 
 Environment variables needed:
 - `AWS_SECRET_ACCESS_KEY` and `AWS_ACCESS_KEY_ID` (see [GCS Settings](https://console.cloud.google.com/storage/settings) > Interoperability)
@@ -34,9 +35,9 @@ kubectl delete deploy --all
 python cluster.py create
 ```
 
-Resize the cluster:
+Resize the cluster (e.g. to 5 workers):
 ```
-gcloud container clusters
+python cluster.py resize 5
 ```
 
 Delete the Kubernetes cluster:
